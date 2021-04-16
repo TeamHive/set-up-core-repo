@@ -1,0 +1,58 @@
+name: "Set Up TeamHive Core Repository"
+description: "Installs dependencies needed to run actions on a TeamHive Core Project"
+inputs:
+  install-dependencies:
+    description: If true, the action will install yarn dependencies.
+    required: false
+  from-cache:
+    description: If true, the action will restore the dependencies from cache
+    required: false
+  action-packages:
+    description: "Comma sepparated value string of teamhive action packages to install"
+    required: false
+outputs:
+  primary-cache-key:
+    description: "If dependencies were installed/cached, what cache key was used as the primary key"
+    value: ${{ steps.cache-key.outputs.key }}
+  cache-hit:
+    description: "If cache was restored, this indicates if the cache hit was an exact match"
+    value: ${{ steps.node-cache.outputs.cache-hit }}
+runs:
+  using: "composite"
+  steps:
+    - name: Set cache key
+      if: ${{inputs.from-cache}} == 'true'
+      id: cache-key
+      env:
+        CACHE_HASH: ${{ hashFiles('**/yarn.lock') }}
+      run: |
+        echo $CACHE_HASH
+        echo "::set-output name=key::$(echo $CACHE_HASH)"
+
+    - uses: actions/cache@v2
+      id: node-cache
+      if: ${{inputs.from-cache}} == 'true'
+      with:
+        path: "**/node_modules"
+        key: ${{ runner.os }}-modules-${{ steps.cache-key.outputs.key }}
+        restore-keys: |
+          ${{ runner.os }}-modules-
+
+    - name: Install dependencies
+      if: steps.node-cache.outputs.cache-hit != 'true' && ${{ inputs.install-dependencies }} == 'true'
+      run: |
+        yarn install --frozen-lockfile
+
+    - name: Install Packages
+      if: ${{ inputs.install-dependencies }} != 'true'
+      env:
+        DEPS: ${{ inputs.action-packages }}
+      run: |
+        yarn global add @teamhive/core-cli $(sed 's/,/ /g' <<< $DEPS)
+
+    - name: Install Actions
+      if: ${{ inputs.action-packages }}
+      env:
+        PACKAGES: ${{ inputs.action-packages }}
+      run: |
+        npx thc deploy:install-actions $PACKAGES
